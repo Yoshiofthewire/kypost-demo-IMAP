@@ -132,9 +132,10 @@ template, and caches it. `alice`, `bob` and `charlie` keep their bespoke seeds;
 any other username gets a clone.
 
 **Only IMAP LOGIN creates a persona.** Never an SMTP envelope.
-`store.forAddress` keeps its current behaviour — resolve a known persona, else
-fall back to the authenticated user — so `MAIL FROM` cannot conjure a mailbox
-and neither can a `deliver-*` address. Mailbox creation stays tied to an
+`store.forAddress` resolves the authenticated login first and consults the
+envelope sender only when the session never authenticated, so `MAIL FROM`
+cannot conjure a mailbox, and neither can it reach one it does not own now that
+every login has a mailbox of its own. Mailbox creation stays tied to an
 authenticated login.
 
 **`reset()` rebuilds dynamic personas in place; it does not delete them.** The

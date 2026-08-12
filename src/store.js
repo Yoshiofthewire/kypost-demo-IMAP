@@ -19,7 +19,19 @@ export function normalizeUser(nameOrAddress) {
 // The server accepts any login, so every unseen name would otherwise allocate a
 // seeded mailbox forever. A client looping through random usernames is the
 // growth vector this bounds.
-const MAX_PERSONAS = Number(process.env.MAX_PERSONAS || 100);
+// A bad value must not silently remove the ceiling: Number('abc') is NaN and
+// every `size >= NaN` comparison is false, so the cap would stop existing on a
+// server that accepts any login. Refuse to start instead.
+export function personaCap(raw) {
+  const value = String(raw ?? '').trim();
+  if (value === '') return 100;
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    throw new Error(`MAX_PERSONAS must be a positive integer, got ${raw}`);
+  }
+  return Number(value);
+}
+
+const MAX_PERSONAS = personaCap(process.env.MAX_PERSONAS);
 
 // Dynamic personas clone this one.
 const TEMPLATE = PERSONAS[0];
@@ -183,15 +195,16 @@ class Store {
     this.personaListener = cb;
   }
 
-  // Mail arriving over SMTP is filed against whoever the envelope says sent it,
-  // falling back to the authenticated login. Resolves only — an envelope must
-  // never conjure a mailbox, or a stranger's MAIL FROM would allocate one.
+  // Mail arriving over SMTP is filed against the authenticated login, and only
+  // against the envelope sender when the session never authenticated. The
+  // envelope is attacker-chosen and SMTP does not require AUTH before MAIL, so
+  // trusting it first would let anyone write into another tester's mailbox.
+  // Resolves only — an envelope must never conjure a mailbox either.
   forAddress(address, fallbackUser) {
-    const local = normalizeUser(address);
-    const byAddress = local && this.personas.get(local);
-    if (byAddress) return byAddress;
     const fallback = normalizeUser(fallbackUser);
-    return (fallback && this.personas.get(fallback)) || null;
+    if (fallback) return this.personas.get(fallback) || null;
+    const local = normalizeUser(address);
+    return (local && this.personas.get(local)) || null;
   }
 
   putContact(persona, uid, vcard) {

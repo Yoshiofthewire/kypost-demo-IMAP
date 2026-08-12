@@ -38,10 +38,11 @@ mailbox you get; the password is ignored.
 | charlie | `charlie@kypost-demo.local`  | attachments, `multipart/related`, legacy charsets, Bcc |
 
 The **local part** of the username selects the mailbox: `bob@anything` maps to
-bob, `charlie@anything` to charlie, anything else to alice. SMTP resolves the
-envelope sender the same way, so a session's Sent copies always land in the
-mailbox that session reads. Persona selection is KyPost Server's decision — the
-demo server only looks up the name it is handed.
+bob, `charlie@anything` to charlie, and a name that is not one of the three
+seeded personas gets a mailbox of its own, created on first login. SMTP files a
+session's Sent copies against the account it authenticated as, so they always
+land in the mailbox that session reads. Persona selection is KyPost Server's
+decision — the demo server only looks up the name it is handed.
 
 Every persona exposes `INBOX`, `Drafts`, `Sent Items`, `Trash` and `Archive`.
 `Sent`, `INBOX/Sent`, `Deleted Items` and friends are aliases of those five, so
@@ -73,7 +74,13 @@ logged in, so a reviewer who touches nothing still sees a notification. Set
 
 Every login gets its own mailbox, seeded from the same template. Log in as
 `anything@kypost-demo.local` with any password. Up to `MAX_PERSONAS` (default
-100) mailboxes exist at once, seeded personas included.
+100) mailboxes exist at once, seeded personas included. A non-numeric or
+non-positive `MAX_PERSONAS` stops the server at startup rather than silently
+lifting the limit.
+
+Mailboxes are never removed, so once the cap is reached further logins are
+refused for the life of the process. `/admin/reset` re-seeds the existing
+mailboxes but does not free any: restart the container to get the demo back.
 
 ### Adding a case to the corpus
 

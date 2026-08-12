@@ -40,7 +40,11 @@ Break one of these and the demo stops working with KyPost Server:
   only the certificate is shared, never the key.
 - **Personas are created by IMAP `LOGIN` only.** Never by an SMTP envelope and
   never by CardDAV, or a stranger's `MAIL FROM` would allocate a mailbox.
-  Creation is capped at `MAX_PERSONAS` (checked in `store.js`).
+  Creation is capped at `MAX_PERSONAS` (checked in `store.js`, which refuses to
+  start on a value that is not a positive integer). SMTP files against the
+  authenticated login; `forAddress` consults the envelope sender only for a
+  session that never authenticated, so a spoofed `MAIL FROM` cannot write into
+  another tester's mailbox.
 - **Corpus delivery regenerates `Message-ID` and `Date`.** `addMessageDeduped`
   drops a second copy sharing an ID, so a fixture delivered twice with its
   stored ID would silently vanish.
