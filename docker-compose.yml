@@ -1,0 +1,114 @@
+# KyPost demo sandbox: cloudflared -> KyPost Server -> KyPost Demo Mail Server.
+#
+# Trust boundary, from the outside in:
+#   * Only cloudflared reaches the internet, and only KyPost Server's web port.
+#   * Only KyPost Server (172.30.0.10) may open IMAP, SMTP or CardDAV, enforced
+#     both by this network layout and by the mail server's own allowlist.
+#   * No IMAP, SMTP or CardDAV port is published to the host or the internet.
+name: kypost-demo
+
+networks:
+  KyPost-Net:
+    name: KyPost-Net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${KYPOST_NET_SUBNET:-172.30.0.0/24}
+          gateway: ${KYPOST_NET_GATEWAY:-172.30.0.1}
+
+volumes:
+  # Certificate only. The mail server's private key never leaves its container.
+  kypost_demo_tls:
+  kypost_config:
+  kypost_private:
+  kypost_logs:
+  kypost_state:
+
+services:
+  kypost-demo-mail:
+    build:
+      context: .
+    image: kypost-demo-mail:local
+    container_name: kypost-demo-mail
+    restart: unless-stopped
+    # No `ports:` on purpose. IMAP/SMTP/CardDAV are KyPost-Net only.
+    networks:
+      KyPost-Net:
+        ipv4_address: ${KYPOST_DEMO_MAIL_IP:-172.30.0.20}
+    environment:
+      # Application-layer half of the IP-only trust boundary. Loopback stays in
+      # the list for the container's own healthcheck.
+      ALLOWED_CLIENT_IPS: "${KYPOST_SERVER_IP:-172.30.0.10},127.0.0.1,::1"
+      TLS_HOSTNAMES: "kypost-demo-mail,localhost"
+      TLS_IPS: "${KYPOST_DEMO_MAIL_IP:-172.30.0.20},127.0.0.1"
+      # Demos: RESET_ENABLED=true plus a RESET_TOKEN of 16+ characters.
+      # App Store testing: leave both unset. The server refuses to start with
+      # reset enabled and no token, so there is no unauthenticated wipe path.
+      RESET_ENABLED: "${RESET_ENABLED:-false}"
+      RESET_TOKEN: "${RESET_TOKEN:-}"
+    volumes:
+      - kypost_demo_tls:/srv/tls-public
+    tmpfs:
+      - /run/kypost-tls:mode=0700,uid=10001,gid=10001
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]   # 993/587/443 as a non-root user
+    security_opt: [no-new-privileges:true]
+
+  kypost-server:
+    # Built from the main branch, per PROMPT.md section 3. Swap for
+    # `context: ../kypost-server` to test against a local checkout.
+    build:
+      context: https://github.com/Yoshiofthewire/KyPost-Server.git#main
+    image: kypost-server:demo
+    container_name: kypost-server
+    restart: unless-stopped
+    depends_on:
+      kypost-demo-mail:
+        condition: service_healthy
+    networks:
+      KyPost-Net:
+        ipv4_address: ${KYPOST_SERVER_IP:-172.30.0.10}
+    # Not published either: cloudflared reaches 5866 over KyPost-Net.
+    environment:
+      WEB_PORT: 5866
+      KYPOST_BIND: 127.0.0.1
+      # Only cloudflared's forwarded headers are believed.
+      TRUSTED_PROXY_CIDRS: "${CLOUDFLARED_IP:-172.30.0.30}/32"
+      SERVER_BASE_URL: "${PUBLIC_URL:-https://demo.kypost.org}"
+      # Trust the sandbox mail server's certificate without touching the system
+      # bundle: Go reads every file in each colon-separated SSL_CERT_DIR entry.
+      SSL_CERT_DIR: "/etc/ssl/certs:/srv/kypost-demo-tls"
+      IMAP_HOST: kypost-demo-mail
+      IMAP_PORT: "993"
+      IMAP_USERNAME: "${DEMO_PERSONA:-alice}@kypost-demo.local"
+      IMAP_PASSWORD: "${DEMO_PASSWORD:-demo}"
+      SMTP_HOST: kypost-demo-mail
+      SMTP_PORT: "587"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - kypost_demo_tls:/srv/kypost-demo-tls:ro
+      - kypost_config:/kypost/config
+      - kypost_private:/kypost/private
+      - kypost_logs:/kypost/logs
+      - kypost_state:/kypost/state
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: kypost-cloudflared
+    restart: unless-stopped
+    depends_on: [kypost-server]
+    networks:
+      KyPost-Net:
+        ipv4_address: ${CLOUDFLARED_IP:-172.30.0.30}
+    # Equivalent to `cloudflared tunnel --no-autoupdate run --token <token>`,
+    # with the token passed by environment instead of argv so it does not show
+    # up in `ps`, `docker inspect`'s Cmd, or a crash log.
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?set CLOUDFLARED_TUNNEL_TOKEN in .env or the environment}
+    # The tunnel's public hostname (demo.kypost.org) must be mapped to
+    # http://kypost-server:5866 in the Cloudflare dashboard. Do not add a
+    # hostname for the mail server: IMAP, SMTP and CardDAV have no public route.
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

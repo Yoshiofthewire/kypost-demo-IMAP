@@ -1,0 +1,15 @@
+{
+  "name": "kypost-demo-mail",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sandbox IMAP/SMTP/CardDAV server for KyPost Server development, testing and app store review",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "test/run.sh"
+  }
+}

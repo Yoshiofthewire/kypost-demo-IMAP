@@ -1,0 +1,45 @@
+# KyPost Demo Mail Server.
+#
+# Zero runtime npm dependencies: the whole server is Node's standard library
+# plus the openssl CLI for one-shot certificate generation at boot. Nothing to
+# audit in a lockfile, nothing to patch on a CVE Tuesday.
+FROM node:24-alpine
+
+# openssl: generates the sandbox certificate on first start.
+# libcap:  lets the unprivileged user bind 443/587/993 without running as root.
+RUN apk add --no-cache openssl libcap \
+ && setcap cap_net_bind_service=+ep "$(readlink -f "$(which node)")" \
+ && apk del libcap
+
+RUN addgroup -S -g 10001 kypost \
+ && adduser -S -u 10001 -G kypost kypost
+
+WORKDIR /app
+COPY package.json ./
+COPY src ./src
+
+# Private key material lives here and is never a volume: a container restart
+# regenerates it. The published certificate goes to /srv/tls-public, which the
+# compose file shares read-only with KyPost Server.
+RUN mkdir -p /run/kypost-tls /srv/tls-public \
+ && chown kypost:kypost /run/kypost-tls /srv/tls-public \
+ && chmod 700 /run/kypost-tls
+
+USER kypost
+
+ENV NODE_ENV=production \
+    IMAP_PORT=993 \
+    SMTP_PORT=587 \
+    HTTPS_PORT=443 \
+    TLS_KEY_DIR=/run/kypost-tls \
+    TLS_PUBLISH_DIR=/srv/tls-public \
+    RESET_ENABLED=false
+
+# Documentation only. These ports are reachable on KyPost-Net and are never
+# published to the host — see docker-compose.yml.
+EXPOSE 993 587 443
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["node", "/app/src/healthcheck.js"]
+
+CMD ["node", "/app/src/index.js"]
