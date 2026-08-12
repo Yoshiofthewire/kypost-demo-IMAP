@@ -11,6 +11,9 @@ KyPost IMAP DEMO is a demo backend IMAP / SMTP server for a demo KyPost server f
 | `src/smtp.js` | SMTP submission, STARTTLS, black hole |
 | `src/carddav.js` | CardDAV over HTTPS + gated `/admin/reset` |
 | `src/store.js` | in-memory personas, folder aliasing, reset |
+| `src/corpus.js` | loads and validates the deliverable `.eml` corpus |
+| `src/deliver.js` | trigger addresses, header rewriting, ambient drip |
+| `corpus/` | `.eml` fixtures plus `manifest.json` |
 | `src/seed.js` | seed messages and vCards |
 | `src/tls.js` | boot-time self-signed certificate |
 | `test/acceptance/` | Go acceptance suite, run via `./test/run.sh` |
@@ -35,6 +38,15 @@ Break one of these and the demo stops working with KyPost Server:
   character token.
 - **No keys or certificates in the repository or the image.** Generated at boot;
   only the certificate is shared, never the key.
+- **Personas are created by IMAP `LOGIN` only.** Never by an SMTP envelope and
+  never by CardDAV, or a stranger's `MAIL FROM` would allocate a mailbox.
+  Creation is capped at `MAX_PERSONAS` (checked in `store.js`).
+- **Corpus delivery regenerates `Message-ID` and `Date`.** `addMessageDeduped`
+  drops a second copy sharing an ID, so a fixture delivered twice with its
+  stored ID would silently vanish.
+- **`src/smtp.js` never branches on recipients.** It reports what it accepted
+  through `onAccepted` and nothing more. Trigger routing lives in
+  `src/deliver.js`.
 
 ## Verification
 

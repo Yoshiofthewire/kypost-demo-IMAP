@@ -47,6 +47,46 @@ Every persona exposes `INBOX`, `Drafts`, `Sent Items`, `Trash` and `Archive`.
 `Sent`, `INBOX/Sent`, `Deleted Items` and friends are aliases of those five, so
 a client that guesses a different name still lands in the right tray.
 
+## Making mail arrive
+
+Send a message from the app to any of these addresses. The domain does not
+matter and case is ignored, so `Deliver-Mail@anything` works.
+
+| Address | Delivers |
+|---|---|
+| `deliver-mail@` | An ordinary message |
+| `deliver-crypto-good@` | Valid signature or Autocrypt header |
+| `deliver-crypto-bad@` | Broken signature, truncated armor, bad keydata |
+| `deliver-mime-bad@` | Unclosed boundary, bogus charset, broken base64 |
+| `deliver-batch@` | One of each |
+
+An unrecognised `deliver-*` address, or any other address, delivers nothing —
+the SMTP submission is still accepted and filed to `Sent Items` as usual.
+Delivery failures (a corpus read error, for instance) are logged server-side
+and never change the SMTP response, so a demo that silently isn't receiving
+injected mail needs a look at the server log, not the SMTP transcript.
+
+Mail also arrives on its own every 15–30 minutes for any account that has
+logged in, so a reviewer who touches nothing still sees a notification. Set
+`DRIP_SECONDS` to override the interval for testing.
+
+Every login gets its own mailbox, seeded from the same template. Log in as
+`anything@kypost-demo.local` with any password. Up to `MAX_PERSONAS` (default
+100) mailboxes exist at once, seeded personas included.
+
+### Adding a case to the corpus
+
+Drop an `.eml` file in `corpus/` and add three lines to `corpus/manifest.json`:
+the filename, one of the four categories, and what KyPost should do with it. No
+code changes. A malformed manifest fails startup by name.
+
+### Known limitation: IDLE
+
+The server advertises `IDLE` but never sends an untagged `EXISTS`. A client
+sitting in IDLE will not see injected mail until it polls. KyPost Server polls
+on an interval, so the notification path works; a push-only client would not
+see delivery promptly.
+
 ## Services
 
 | Service | Port | Transport |
