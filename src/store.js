@@ -68,20 +68,36 @@ function newMailbox(name) {
   return { name, uidValidity: 1, uidNext: 1, messages: [] };
 }
 
+// Dynamic personas clone the template's mail rather than shipping a second seed
+// set. Substitution is plain string replacement, not a regex: the template
+// address and display name are literals and an address containing regex
+// metacharacters would otherwise be a live bug.
+function retarget(raw, from, to) {
+  return raw.split(from).join(to);
+}
+
 function buildPersona(key) {
-  const seed = SEED[key] || SEED[TEMPLATE];
+  const seeded = Boolean(SEED[key]);
+  const seed = seeded ? SEED[key] : SEED[TEMPLATE];
+  const address = seeded ? seed.address : `${key}@kypost-demo.local`;
+  const displayName = seeded ? seed.displayName : key;
   const box = {
     key,
-    address: seed.address,
-    displayName: seed.displayName,
+    address,
+    displayName,
     folders: new Map(FOLDERS.map((f) => [f, newMailbox(f)])),
     contacts: new Map(),
     ctag: 1,
   };
-  for (const m of seedMessages(SEED[key] ? key : TEMPLATE)) addMessage(box, m.folder, m.raw, m.flags, m.date);
+  for (const m of seedMessages(seeded ? key : TEMPLATE)) {
+    const raw = seeded ? m.raw
+      : retarget(retarget(m.raw, seed.address, address), seed.displayName, displayName);
+    addMessage(box, m.folder, raw, m.flags, m.date);
+  }
   for (const c of seed.contacts) {
-    const vcard = vcardFor(c);
-    box.contacts.set(c.uid, { uid: c.uid, vcard, etag: etagOf(vcard) });
+    const uid = seeded ? c.uid : `${key}-${c.uid.split('-').slice(1).join('-')}`;
+    const vcard = vcardFor({ ...c, uid });
+    box.contacts.set(uid, { uid, vcard, etag: etagOf(vcard) });
   }
   return box;
 }

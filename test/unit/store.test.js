@@ -40,3 +40,29 @@ test('forAddress falls back to the authenticated user', () => {
   const alice = store.forUser('alice');
   assert.equal(store.forAddress('stranger@elsewhere.test', 'alice'), alice);
 });
+
+test('cloned seed mail is addressed to its owner, not the template', () => {
+  const u = store.forUser('user42');
+  assert.equal(u.address, 'user42@kypost-demo.local');
+  const inbox = u.folders.get('INBOX').messages;
+  const all = inbox.map((m) => m.raw).join('\n');
+  assert.ok(all.includes('user42@kypost-demo.local'),
+    'cloned mail must name the owner');
+  assert.ok(!all.includes('alice@kypost-demo.local'),
+    'cloned mail must not still name the template persona');
+});
+
+test('cloned contact UIDs are namespaced to the persona', () => {
+  const u = store.forUser('user43');
+  for (const uid of u.contacts.keys()) {
+    assert.ok(uid.startsWith('user43-'), `contact uid ${uid} not namespaced`);
+  }
+});
+
+test('seeded personas keep their bespoke content', () => {
+  const alice = store.forUser('alice');
+  assert.equal(alice.address, 'alice@kypost-demo.local');
+  assert.equal(alice.displayName, 'Alice Demo');
+  const bob = store.forUser('bob');
+  assert.equal(bob.address, 'bob@kypost-demo.local');
+});
