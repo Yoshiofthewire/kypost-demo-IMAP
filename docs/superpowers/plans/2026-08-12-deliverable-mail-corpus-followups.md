@@ -3,20 +3,14 @@
 Findings that survived the final whole-branch review and its fix wave. None
 block merge; all were adjudicated and parked deliberately rather than dropped.
 
-## Worth doing first
+## Done
 
-**`store.forAddress`'s precedence change has no test.** The fix wave changed
-`forAddress` to prefer the authenticated login over the envelope sender, closing
-a path where a spoofed `MAIL FROM` wrote corpus messages and a `Sent Items` copy
-into another tester's mailbox. The behaviour is correct, but nothing asserts it:
-`test/unit/store.test.js`'s "falls back to the authenticated user" passes
-identically under the old and new code, because its address is not a persona,
-and all five acceptance-suite `submit()` calls authenticate as the envelope
-From, so both branches resolve the same key.
-
-The missing case is `forAddress('bob@x', 'alice')` returning alice. Three lines.
-This is the same gap the review refused to accept for `MAX_PERSONAS`, so leaving
-it uncovered is inconsistent.
+**`store.forAddress`'s precedence change had no test.** Closed in 2abcca2:
+`test/unit/store.test.js` now asserts `forAddress('bob@kypost-demo.local',
+'alice')` returns alice. Confirmed non-vacuous by temporarily restoring the
+envelope-first ordering — the new test fails alone, while the pre-existing
+"falls back to the authenticated user" test passes under both orderings, which
+is why the regression would otherwise have gone unnoticed.
 
 ## Smaller
 
