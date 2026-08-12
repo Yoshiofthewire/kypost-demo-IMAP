@@ -52,3 +52,37 @@ export function deliverForRecipients(persona, rcpts, corpus, log) {
   }
   return n;
 }
+
+const DRIP_MIN_SECONDS = 15 * 60;
+const DRIP_MAX_SECONDS = 30 * 60;
+
+// One timer per live persona, each at its own random interval, so thirty
+// testers do not all get a notification in the same second. Timers exist only
+// for personas someone has logged into: an idle server delivers nothing.
+export function startDrip({ store, corpus, log, seconds }) {
+  const timers = new Map();
+  const delay = () => {
+    if (seconds > 0) return seconds * 1000;
+    const span = DRIP_MAX_SECONDS - DRIP_MIN_SECONDS;
+    return (DRIP_MIN_SECONDS + Math.floor(Math.random() * span)) * 1000;
+  };
+
+  const schedule = (persona) => {
+    const t = setTimeout(() => {
+      const entry = corpus.pickWeighted();
+      injectEntry(persona, entry);
+      log('drip delivered', { persona: persona.key, file: entry.file });
+      schedule(persona);
+    }, delay());
+    t.unref();
+    timers.set(persona.key, t);
+  };
+
+  store.onPersonaCreated(schedule);
+  for (const persona of store.personas.values()) schedule(persona);
+
+  return () => {
+    for (const t of timers.values()) clearTimeout(t);
+    timers.clear();
+  };
+}

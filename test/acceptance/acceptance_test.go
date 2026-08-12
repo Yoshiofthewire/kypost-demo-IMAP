@@ -37,6 +37,15 @@ const (
 
 var certPool *x509.CertPool
 
+// Go's system cert pool is cached process-wide behind a sync.Once
+// (crypto/x509/root.go): the first TLS dial in the binary locks it in, and no
+// later os.Setenv("SSL_CERT_DIR", ...) can add to it. A second server instance
+// therefore cannot be trusted by handing goimap a different cert directory —
+// it must present the exact same certificate TestMain's already did. Reusing
+// TestMain's key directory makes ensureCert (src/tls.js) skip regeneration and
+// reuse that identical key+cert, which is what mainKeyDir is for.
+var mainKeyDir string
+
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "kypost-demo-*")
 	if err != nil {
@@ -45,6 +54,7 @@ func TestMain(m *testing.M) {
 	defer os.RemoveAll(dir)
 	keyDir := filepath.Join(dir, "key")
 	pubDir := filepath.Join(dir, "pub")
+	mainKeyDir = keyDir
 
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -1222,4 +1232,74 @@ func doDAV(t *testing.T, c *http.Client, method, url, depth, body string, wantSt
 		t.Fatalf("%s %s returned %d, want %d: %s", method, url, resp.StatusCode, wantStatus, out)
 	}
 	return string(out)
+}
+
+// A reviewer who does nothing must still see mail arrive. This test runs its
+// own server so a two-second drip cannot add messages underneath every other
+// test in the suite.
+func TestDripDeliversToALoggedInPersona(t *testing.T) {
+	const (
+		dripIMAP  = 19934
+		dripSMTP  = 15874
+		dripHTTPS = 14434
+	)
+	dir := t.TempDir()
+	pubDir := filepath.Join(dir, "pub")
+	cmd := exec.Command("node", "../../src/index.js")
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("IMAP_PORT=%d", dripIMAP),
+		fmt.Sprintf("SMTP_PORT=%d", dripSMTP),
+		fmt.Sprintf("HTTPS_PORT=%d", dripHTTPS),
+		"BIND_ADDRESS=127.0.0.1",
+		// Reuses TestMain's key directory rather than SSL_CERT_DIR: see the
+		// mainKeyDir comment above TestMain for why a fresh directory cannot
+		// be trusted once the process's system cert pool is cached.
+		"TLS_KEY_DIR="+mainKeyDir,
+		"TLS_PUBLISH_DIR="+pubDir,
+		"DRIP_SECONDS=2",
+	)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}()
+	if err := waitForPort(fmt.Sprintf("127.0.0.1:%d", dripIMAP), 15*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	user := "drip-user@kypost-demo.local"
+	d, err := goimap.New(user, "any-password", "127.0.0.1", dripIMAP)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer d.Close()
+	if err := d.SelectFolder("INBOX"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := d.GetUIDs("ALL")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Poll this instance directly; waitForNewUID targets the shared server.
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		fresh, err := goimap.New(user, "any-password", "127.0.0.1", dripIMAP)
+		if err != nil {
+			continue
+		}
+		if err := fresh.SelectFolder("INBOX"); err == nil {
+			if uids, err := fresh.GetUIDs("ALL"); err == nil && len(uids) > len(before) {
+				_ = fresh.Close()
+				return
+			}
+		}
+		_ = fresh.Close()
+	}
+	t.Errorf("drip delivered nothing within 20s: INBOX still holds %d messages", len(before))
 }

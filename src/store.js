@@ -173,7 +173,14 @@ class Store {
     if (this.personas.size >= MAX_PERSONAS) return null;
     const created = buildPersona(key);
     this.personas.set(key, created);
+    if (this.personaListener) this.personaListener(created);
     return created;
+  }
+
+  // The drip needs to know when a mailbox comes into existence. One listener is
+  // all this needs; a full emitter would be more machinery than the job.
+  onPersonaCreated(cb) {
+    this.personaListener = cb;
   }
 
   // Mail arriving over SMTP is filed against whoever the envelope says sent it,

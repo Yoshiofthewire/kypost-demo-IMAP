@@ -10,7 +10,7 @@ import { createSmtpSession } from './smtp.js';
 import { createDavHandler } from './carddav.js';
 import { store, PERSONAS } from './store.js';
 import { loadCorpus } from './corpus.js';
-import { deliverForRecipients } from './deliver.js';
+import { deliverForRecipients, startDrip } from './deliver.js';
 
 const env = (k, d) => {
   const v = process.env[k];
@@ -31,6 +31,7 @@ const cfg = {
   publishDir: env('TLS_PUBLISH_DIR', '/srv/tls-public'),
   hostnames: list('TLS_HOSTNAMES', 'kypost-demo-mail,localhost'),
   ips: list('TLS_IPS', '172.30.0.20,127.0.0.1'),
+  dripSeconds: Number(env('DRIP_SECONDS', '0')),
 };
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -143,6 +144,9 @@ function listen(server, port, label) {
 listen(imap, cfg.imapPort, 'IMAPS');
 listen(smtp, cfg.smtpPort, 'SMTP');
 listen(dav, cfg.httpsPort, 'CardDAV/HTTPS');
+
+startDrip({ store, corpus, log, seconds: cfg.dripSeconds });
+log('drip', cfg.dripSeconds > 0 ? `every ${cfg.dripSeconds}s` : 'every 15-30 min');
 
 log('personas seeded', PERSONAS.map((p) => store.get(p).address));
 log('client allowlist', [...allowed]);
