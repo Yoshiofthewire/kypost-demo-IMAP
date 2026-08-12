@@ -1303,3 +1303,122 @@ func TestDripDeliversToALoggedInPersona(t *testing.T) {
 	}
 	t.Errorf("drip delivered nothing within 20s: INBOX still holds %d messages", len(before))
 }
+
+// Thirty testers must not share one mailbox. This is the defect that made
+// concurrent testing impossible: every unknown login resolved to PERSONAS[0].
+func TestConcurrentUsersGetSeparateMailboxes(t *testing.T) {
+	one := dial(t, "sep-one@kypost-demo.local")
+	two := dial(t, "sep-two@kypost-demo.local")
+
+	for _, d := range []*goimap.Dialer{one, two} {
+		if err := d.SelectFolder("INBOX"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	oneUIDs, err := one.GetUIDs("ALL")
+	if err != nil || len(oneUIDs) == 0 {
+		t.Fatalf("sep-one has no seeded mail: %v", err)
+	}
+	twoBefore, err := two.GetUIDs("ALL")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Empty one mailbox. go-imap v0.1.28 moves one UID at a time — there is no
+	// bulk MoveMessages; the method is MoveEmail(uid int, folder string).
+	for _, uid := range oneUIDs {
+		if err := one.MoveEmail(uid, "Trash"); err != nil {
+			t.Fatalf("move uid %d to Trash: %v", uid, err)
+		}
+	}
+
+	twoAfter, err := two.GetUIDs("ALL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(twoAfter) != len(twoBefore) {
+		t.Errorf("emptying sep-one changed sep-two: %d -> %d", len(twoBefore), len(twoAfter))
+	}
+}
+
+// A cloned mailbox showing mail addressed to Alice would confuse every tester
+// and break recipient matching in KyPost Server.
+func TestClonedMailIsAddressedToItsOwner(t *testing.T) {
+	d := dial(t, "clone-check@kypost-demo.local")
+	if err := d.SelectFolder("INBOX"); err != nil {
+		t.Fatal(err)
+	}
+	uids, err := d.GetUIDs("ALL")
+	if err != nil || len(uids) == 0 {
+		t.Fatalf("no seeded mail: %v", err)
+	}
+	overviews, err := d.GetOverviews(uids...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// goimap.EmailAddresses is map[address]displayName, so range over the keys.
+	found := false
+	for _, e := range overviews {
+		for addr := range e.To {
+			lower := strings.ToLower(addr)
+			if strings.Contains(lower, "clone-check@") {
+				found = true
+			}
+			if strings.Contains(lower, "alice@") {
+				t.Errorf("cloned mail is still addressed to alice: %s", addr)
+			}
+		}
+	}
+	if !found {
+		t.Error("no cloned message is addressed to clone-check")
+	}
+}
+
+// reset rebuilds dynamic personas in place. Deleting them would leave an open
+// session writing to an orphaned mailbox — the bug src/store.js:128 records.
+func TestResetReseedsADynamicPersona(t *testing.T) {
+	user := "reset-dynamic@kypost-demo.local"
+	d := dial(t, user)
+	if err := d.SelectFolder("INBOX"); err != nil {
+		t.Fatal(err)
+	}
+	uids, err := d.GetUIDs("ALL")
+	if err != nil || len(uids) == 0 {
+		t.Fatalf("no seeded mail: %v", err)
+	}
+	for _, uid := range uids {
+		if err := d.MoveEmail(uid, "Trash"); err != nil {
+			t.Fatalf("empty INBOX: %v", err)
+		}
+	}
+
+	client := httpsClient()
+	req, err := http.NewRequest("POST",
+		fmt.Sprintf("https://%s:%d/admin/reset", host, httpsPort), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// src/carddav.js reads Authorization: Bearer, not a custom header.
+	req.Header.Set("Authorization", "Bearer "+resetToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reset returned %d", resp.StatusCode)
+	}
+
+	// The SAME session must see the reseeded mailbox, not an orphan.
+	if err := d.SelectFolder("INBOX"); err != nil {
+		t.Fatalf("re-SELECT after reset: %v", err)
+	}
+	after, err := d.GetUIDs("ALL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) == 0 {
+		t.Error("dynamic persona was not reseeded, or its session was orphaned")
+	}
+}
