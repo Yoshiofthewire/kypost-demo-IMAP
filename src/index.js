@@ -18,6 +18,12 @@ const env = (k, d) => {
 };
 const list = (k, d) => env(k, d).split(',').map((s) => s.trim()).filter(Boolean);
 const bool = (k, d) => ['true', '1', 'yes'].includes(env(k, d).toLowerCase());
+// Whole seconds, at least one: DRIP_SECONDS=0.05 would otherwise be a 50 ms
+// delivery loop per persona. 0 (or unset, or junk) keeps the 15-30 min default.
+const seconds = (k) => {
+  const n = Number(env(k, '0'));
+  return n > 0 ? Math.max(1, Math.floor(n)) : 0;
+};
 
 const cfg = {
   bind: env('BIND_ADDRESS', '0.0.0.0'),
@@ -31,7 +37,7 @@ const cfg = {
   publishDir: env('TLS_PUBLISH_DIR', '/srv/tls-public'),
   hostnames: list('TLS_HOSTNAMES', 'kypost-demo-mail,localhost'),
   ips: list('TLS_IPS', '172.30.0.20,127.0.0.1'),
-  dripSeconds: Number(env('DRIP_SECONDS', '0')),
+  dripSeconds: seconds('DRIP_SECONDS'),
 };
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);

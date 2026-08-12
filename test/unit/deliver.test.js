@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { store } from '../../src/store.js';
 import { loadCorpus } from '../../src/corpus.js';
-import { freshen, injectEntry, TRIGGERS } from '../../src/deliver.js';
+import { freshen, injectEntry, TRIGGERS, deliverForRecipients } from '../../src/deliver.js';
 
 const corpus = loadCorpus();
 
@@ -43,6 +43,15 @@ test('injected mail is unseen', () => {
   const p = store.forUser('inject-unseen');
   const msg = injectEntry(p, corpus.next('plain'));
   assert.ok(!msg.flags.has('\\Seen'), 'new mail must be unread or it fires no notification');
+});
+
+test('a repeated trigger recipient delivers once', () => {
+  const p = store.forUser('rcpt-dedup');
+  const before = p.folders.get('INBOX').messages.length;
+  const rcpts = Array(20).fill('deliver-mail@kypost-demo.local');
+  rcpts.push('Deliver-Mail@elsewhere.test');
+  assert.equal(deliverForRecipients(p, rcpts, corpus, () => {}), 1);
+  assert.equal(p.folders.get('INBOX').messages.length, before + 1);
 });
 
 test('the trigger table covers every category plus batch', () => {

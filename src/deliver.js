@@ -36,14 +36,20 @@ export function injectEntry(persona, entry, now = new Date()) {
   return addMessageDeduped(persona, 'INBOX', freshen(entry.raw, now), [], now);
 }
 
-// One delivery per matching trigger address. Called from the SMTP session after
-// it has already filed and dropped the message.
+// One delivery per distinct trigger address. Called from the SMTP session after
+// it has already filed and dropped the message. Repeats are collapsed first:
+// SMTP accepts 100 recipients, so a single submission naming the same trigger
+// each time would otherwise inject hundreds of messages.
 export function deliverForRecipients(persona, rcpts, corpus, log) {
   if (!persona) return 0;
   let n = 0;
+  const seen = new Set();
   for (const rcpt of rcpts || []) {
     const categories = triggerFor(rcpt);
     if (!categories) continue;
+    const local = String(rcpt).split('@')[0].trim().toLowerCase();
+    if (seen.has(local)) continue;
+    seen.add(local);
     for (const category of categories) {
       injectEntry(persona, corpus.next(category));
       n++;
@@ -56,33 +62,33 @@ export function deliverForRecipients(persona, rcpts, corpus, log) {
 const DRIP_MIN_SECONDS = 15 * 60;
 const DRIP_MAX_SECONDS = 30 * 60;
 
-// One timer per live persona, each at its own random interval, so thirty
-// testers do not all get a notification in the same second. Timers exist only
-// for personas someone has logged into: an idle server delivers nothing.
+// One timer per provisioned persona, each at its own random interval, so thirty
+// testers do not all get a notification in the same second. That is the seed
+// set from boot plus every persona a later LOGIN creates.
 export function startDrip({ store, corpus, log, seconds }) {
-  const timers = new Map();
   const delay = () => {
     if (seconds > 0) return seconds * 1000;
     const span = DRIP_MAX_SECONDS - DRIP_MIN_SECONDS;
     return (DRIP_MIN_SECONDS + Math.floor(Math.random() * span)) * 1000;
   };
 
+  // A throw inside a timer is an uncaughtException that kills the server, and
+  // it would also end this persona's drip for good, so the next tick is booked
+  // in `finally` whatever happened.
   const schedule = (persona) => {
-    const t = setTimeout(() => {
-      const entry = corpus.pickWeighted();
-      injectEntry(persona, entry);
-      log('drip delivered', { persona: persona.key, file: entry.file });
-      schedule(persona);
-    }, delay());
-    t.unref();
-    timers.set(persona.key, t);
+    setTimeout(() => {
+      try {
+        const entry = corpus.pickWeighted();
+        injectEntry(persona, entry);
+        log('drip delivered', { persona: persona.key, file: entry.file });
+      } catch (e) {
+        log('drip failed', { persona: persona.key, error: e.message });
+      } finally {
+        schedule(persona);
+      }
+    }, delay()).unref();
   };
 
   store.onPersonaCreated(schedule);
   for (const persona of store.personas.values()) schedule(persona);
-
-  return () => {
-    for (const t of timers.values()) clearTimeout(t);
-    timers.clear();
-  };
 }
