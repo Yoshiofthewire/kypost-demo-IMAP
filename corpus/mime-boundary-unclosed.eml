@@ -1,0 +1,12 @@
+From: Charlie Demo <charlie@kypost-demo.local>
+To: Demo User <demo@kypost-demo.local>
+Subject: Multipart that never closes
+Message-ID: <corpus-mime-1@kypost-demo.local>
+Date: Mon, 10 Aug 2026 15:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="corpus-never-closed"
+
+--corpus-never-closed
+Content-Type: text/plain; charset=utf-8
+
+The closing boundary is missing on purpose.

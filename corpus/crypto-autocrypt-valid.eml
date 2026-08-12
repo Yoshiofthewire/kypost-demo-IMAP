@@ -1,0 +1,10 @@
+From: Bob Demo <bob@kypost-demo.local>
+To: Demo User <demo@kypost-demo.local>
+Subject: Key exchange
+Message-ID: <corpus-crypto-2@kypost-demo.local>
+Date: Mon, 10 Aug 2026 13:30:00 +0000
+Autocrypt: addr=bob@kypost-demo.local; prefer-encrypt=mutual; keydata=mDMEZKyPost0BCADemoKeyMaterialNotRealJustPaddingForClientParsingTestsAAAAB3NzaC1yc2EAAAADAQABAAABgQDemoDemoDemoDemoDemoDemoDemoDemoDemo
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+My key is attached in the Autocrypt header.

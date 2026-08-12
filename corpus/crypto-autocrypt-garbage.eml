@@ -1,0 +1,10 @@
+From: Nokey Nelson <nokey@kypost-demo.local>
+To: Demo User <demo@kypost-demo.local>
+Subject: Autocrypt header that will not parse
+Message-ID: <corpus-crypto-4@kypost-demo.local>
+Date: Mon, 10 Aug 2026 14:30:00 +0000
+Autocrypt: addr=nokey@kypost-demo.local; prefer-encrypt=mutual; keydata=!!!!not-base64-at-all!!!!
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+The Autocrypt keydata above is not valid base64.

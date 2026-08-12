@@ -1,0 +1,22 @@
+[
+  { "file": "plain-ordinary.eml", "category": "plain",
+    "expect": "renders as plain text; poller reports one new message" },
+  { "file": "plain-threaded.eml", "category": "plain",
+    "expect": "threads under the seeded root via In-Reply-To" },
+  { "file": "plain-html-alternative.eml", "category": "plain",
+    "expect": "HTML part preferred, plain part available as fallback" },
+  { "file": "crypto-signed-valid.eml", "category": "crypto-good",
+    "expect": "clearsigned block detected; signature state shown, not an error" },
+  { "file": "crypto-autocrypt-valid.eml", "category": "crypto-good",
+    "expect": "Autocrypt header harvested into the sender's key record" },
+  { "file": "crypto-armor-truncated.eml", "category": "crypto-bad",
+    "expect": "unterminated armor is reported as undecryptable; message still lists and opens" },
+  { "file": "crypto-autocrypt-garbage.eml", "category": "crypto-bad",
+    "expect": "keydata fails to parse; harvest skips it without failing the poll" },
+  { "file": "mime-boundary-unclosed.eml", "category": "mime-bad",
+    "expect": "unclosed boundary parses to one part; no hang, no crash" },
+  { "file": "mime-charset-bogus.eml", "category": "mime-bad",
+    "expect": "unknown charset falls back to a default rather than erroring" },
+  { "file": "mime-base64-broken.eml", "category": "mime-bad",
+    "expect": "undecodable attachment is skipped; body still renders" }
+]

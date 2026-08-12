@@ -1,0 +1,18 @@
+From: Bob Demo <bob@kypost-demo.local>
+To: Demo User <demo@kypost-demo.local>
+Subject: Signed release announcement
+Message-ID: <corpus-crypto-1@kypost-demo.local>
+Date: Mon, 10 Aug 2026 13:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+Release 1.4 is tagged and signed.
+-----BEGIN PGP SIGNATURE-----
+
+iQEzBAEBCgAdFiEEDemoDemoDemoDemoDemoDemoDemoFAmSsj3AACgkQDemoDemoD
+VGhpcyBzaWduYXR1cmUgaXMgYSBkZW1vIHBsYWNlaG9sZGVyIG9ubHku
+=SiGn
+-----END PGP SIGNATURE-----

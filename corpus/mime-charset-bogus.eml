@@ -1,0 +1,9 @@
+From: Charlie Demo <charlie@kypost-demo.local>
+To: Demo User <demo@kypost-demo.local>
+Subject: =?utf-8?q?Charset_that_does_not_exist?=
+Message-ID: <corpus-mime-2@kypost-demo.local>
+Date: Mon, 10 Aug 2026 15:30:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=x-not-a-real-charset
+
+Decoders should fall back rather than fail.
