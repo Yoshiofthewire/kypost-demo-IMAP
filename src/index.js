@@ -9,6 +9,8 @@ import { createImapSession } from './imap.js';
 import { createSmtpSession } from './smtp.js';
 import { createDavHandler } from './carddav.js';
 import { store, PERSONAS } from './store.js';
+import { loadCorpus } from './corpus.js';
+import { deliverForRecipients } from './deliver.js';
 
 const env = (k, d) => {
   const v = process.env[k];
@@ -61,6 +63,16 @@ try {
 const secureContext = tls.createSecureContext({ key, cert });
 const tlsOptions = { key, cert, minVersion: 'TLSv1.2' };
 
+// A broken fixture must fail startup by name rather than surface as a demo that
+// silently delivers nothing.
+let corpus;
+try {
+  corpus = loadCorpus();
+} catch (e) {
+  console.error('corpus failed to load:', e.message);
+  process.exit(1);
+}
+
 // Docker's network filtering is the first fence; this is the second. Both are
 // required by the spec, and a container that is accidentally attached to a
 // second network must still refuse everyone but KyPost Server.
@@ -100,7 +112,13 @@ smtp.on('connection', (socket) => {
   if (socket.destroyed) return;
   socket.setTimeout(10 * 60 * 1000, () => socket.destroy());
   socket.on('error', (e) => log('smtp socket error', e.message));
-  createSmtpSession(socket, { log, secureContext, secure: false, allowLogin });
+  createSmtpSession(socket, {
+    log,
+    secureContext,
+    secure: false,
+    allowLogin,
+    onAccepted: ({ persona, rcpts }) => deliverForRecipients(persona, rcpts, corpus, log),
+  });
 });
 
 // --- CardDAV + reset over HTTPS ---
@@ -129,6 +147,7 @@ listen(dav, cfg.httpsPort, 'CardDAV/HTTPS');
 log('personas seeded', PERSONAS.map((p) => store.get(p).address));
 log('client allowlist', [...allowed]);
 log('reset mode', cfg.resetEnabled ? 'ENABLED' : 'disabled');
+log('corpus loaded', corpus.size, 'messages across', corpus.categories.join(', '));
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {

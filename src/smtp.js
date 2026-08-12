@@ -13,7 +13,7 @@ const addr = (arg, keyword) => {
   return m ? m[1] : null;
 };
 
-export function createSmtpSession(socket, { log, secureContext, secure, allowLogin }) {
+export function createSmtpSession(socket, { log, secureContext, secure, allowLogin, onAccepted }) {
   let stream = socket;
   let buf = '';
   let inData = false;
@@ -77,7 +77,16 @@ export function createSmtpSession(socket, { log, secureContext, secure, allowLog
       rcptCount: rcpts.length,
       bytes: raw.length,
     });
-    // The payload is not kept anywhere else and is not forwarded.
+    // The payload is not kept anywhere else and is not forwarded. This callback
+    // is told what was accepted; it does not get to change what happened to it.
+    // Recipient-dependent behaviour lives in deliver.js, never here.
+    if (onAccepted) {
+      try {
+        onAccepted({ persona, from, rcpts: [...rcpts] });
+      } catch (e) {
+        log('onAccepted failed', e.message);
+      }
+    }
     from = null;
     rcpts = [];
     send('250 2.0.0 Ok: queued to /dev/null');

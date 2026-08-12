@@ -947,6 +947,128 @@ func TestIMAPAndSMTPAgreeOnPersona(t *testing.T) {
 	}
 }
 
+// Sending to a deliver-* address drops a corpus message into the sender's own
+// INBOX. Matching ignores case and domain so a reviewer typing on a phone
+// keyboard cannot miss.
+func TestTriggerAddressDeliversToSenderInbox(t *testing.T) {
+	d := dial(t, "trigger-user@kypost-demo.local")
+	if err := d.SelectFolder("INBOX"); err != nil {
+		t.Fatalf("SELECT INBOX: %v", err)
+	}
+	before, err := d.GetUIDs("ALL")
+	if err != nil {
+		t.Fatalf("UID SEARCH ALL: %v", err)
+	}
+
+	msg := []byte("From: Trigger User <trigger-user@kypost-demo.local>\r\n" +
+		"To: <DELIVER-Mail@Whatever.Example>\r\n" +
+		"Subject: fire one\r\n" +
+		"Message-ID: <trigger-1@kypost-demo.local>\r\n" +
+		"Date: Tue, 11 Aug 2026 15:00:00 +0000\r\n\r\nplease deliver\r\n")
+
+	if err := submit("trigger-user@kypost-demo.local",
+		[]string{"DELIVER-Mail@Whatever.Example"}, msg); err != nil {
+		t.Fatalf("SMTP submit: %v", err)
+	}
+
+	after := waitForNewUID(t, "trigger-user@kypost-demo.local", "INBOX", len(before))
+	if after <= len(before) {
+		t.Fatalf("INBOX has %d messages, want more than %d", after, len(before))
+	}
+}
+
+// The black hole stays unconditional: a trigger message is still filed into the
+// sender's Sent Items exactly like any other submission.
+func TestTriggerStillFilesIntoSentItems(t *testing.T) {
+	subject := "trigger keeps the sent copy"
+	msg := []byte("From: Sent Guard <sent-guard@kypost-demo.local>\r\n" +
+		"To: <deliver-mail@kypost-demo.local>\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"Message-ID: <trigger-2@kypost-demo.local>\r\n" +
+		"Date: Tue, 11 Aug 2026 15:10:00 +0000\r\n\r\nsent copy please\r\n")
+
+	// The persona must exist before SMTP files against it: only LOGIN creates one.
+	_ = dial(t, "sent-guard@kypost-demo.local")
+
+	if err := submit("sent-guard@kypost-demo.local",
+		[]string{"deliver-mail@kypost-demo.local"}, msg); err != nil {
+		t.Fatalf("SMTP submit: %v", err)
+	}
+
+	d := dial(t, "sent-guard@kypost-demo.local")
+	if err := d.SelectFolder("Sent Items"); err != nil {
+		t.Fatal(err)
+	}
+	if n := countMatching(t, d, subject); n != 1 {
+		t.Errorf("Sent Items holds %d copies of the trigger message, want 1", n)
+	}
+}
+
+// Firing the same trigger twice must yield two messages. The corpus fixtures
+// ship with fixed Message-IDs and addMessageDeduped drops duplicates, so this
+// fails unless the ID is regenerated per delivery.
+func TestRepeatedTriggerIsNotDeduplicated(t *testing.T) {
+	user := "repeat-user@kypost-demo.local"
+	d := dial(t, user)
+	if err := d.SelectFolder("INBOX"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := d.GetUIDs("ALL")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 2; i++ {
+		msg := []byte("From: Repeat User <" + user + ">\r\n" +
+			"To: <deliver-crypto-bad@kypost-demo.local>\r\n" +
+			fmt.Sprintf("Subject: repeat %d\r\n", i) +
+			fmt.Sprintf("Message-ID: <repeat-%d@kypost-demo.local>\r\n", i) +
+			"Date: Tue, 11 Aug 2026 15:20:00 +0000\r\n\r\nagain\r\n")
+		if err := submit(user, []string{"deliver-crypto-bad@kypost-demo.local"}, msg); err != nil {
+			t.Fatalf("SMTP submit %d: %v", i, err)
+		}
+	}
+
+	after := waitForNewUID(t, user, "INBOX", len(before)+1)
+	if after < len(before)+2 {
+		t.Errorf("INBOX gained %d messages, want 2", after-len(before))
+	}
+}
+
+// go-imap hard-errors on an INTERNALDATE it cannot parse, so every injected
+// message must carry one it accepts.
+func TestInjectedMailHasParsableInternalDate(t *testing.T) {
+	user := "internaldate-user@kypost-demo.local"
+	d := dial(t, user)
+	if err := d.SelectFolder("INBOX"); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := d.GetUIDs("ALL")
+
+	msg := []byte("From: ID User <" + user + ">\r\n" +
+		"To: <deliver-batch@kypost-demo.local>\r\n" +
+		"Subject: everything\r\n" +
+		"Message-ID: <internaldate-1@kypost-demo.local>\r\n" +
+		"Date: Tue, 11 Aug 2026 15:30:00 +0000\r\n\r\nall of it\r\n")
+	if err := submit(user, []string{"deliver-batch@kypost-demo.local"}, msg); err != nil {
+		t.Fatalf("SMTP submit: %v", err)
+	}
+	waitForNewUID(t, user, "INBOX", len(before))
+
+	fresh := dial(t, user)
+	if err := fresh.SelectFolder("INBOX"); err != nil {
+		t.Fatal(err)
+	}
+	uids, err := fresh.GetUIDs("ALL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// GetOverviews parses INTERNALDATE and returns an error if it cannot.
+	if _, err := fresh.GetOverviews(uids...); err != nil {
+		t.Fatalf("GetOverviews failed on injected mail: %v", err)
+	}
+}
+
 // ------------------------------------------------------------------ helpers
 
 func contains(list []string, want string) bool {
@@ -969,6 +1091,30 @@ func flagsOf(t *testing.T, d *goimap.Dialer, uid int) []string {
 		t.Fatalf("uid %d not returned by GetOverviews", uid)
 	}
 	return e.Flags
+}
+
+// Delivery is synchronous with the SMTP 250, but the acceptance client opens a
+// fresh connection to observe it. Poll briefly rather than assume ordering.
+func waitForNewUID(t *testing.T, user, folder string, atLeast int) int {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	last := 0
+	for time.Now().Before(deadline) {
+		d, err := goimap.New(user, "any-password", host, imapPort)
+		if err == nil {
+			if err := d.SelectFolder(folder); err == nil {
+				if uids, err := d.GetUIDs("ALL"); err == nil {
+					last = len(uids)
+				}
+			}
+			_ = d.Close()
+		}
+		if last > atLeast {
+			return last
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return last
 }
 
 func countMatching(t *testing.T, d *goimap.Dialer, subject string) int {
