@@ -70,9 +70,9 @@ export function createSmtpSession(socket, { log, secureContext, secure, allowLog
 
   function deliver(raw) {
     const persona = store.forAddress(from, user);
-    addMessageDeduped(persona, 'Sent Items', raw, ['\\Seen'], new Date());
+    if (persona) addMessageDeduped(persona, 'Sent Items', raw, ['\\Seen'], new Date());
     log('smtp accepted+discarded', {
-      persona: persona.key,
+      persona: persona ? persona.key : 'none',
       from,
       rcptCount: rcpts.length,
       bytes: raw.length,

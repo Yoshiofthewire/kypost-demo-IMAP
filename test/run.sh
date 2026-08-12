@@ -6,7 +6,11 @@
 # Needs node and go on PATH. Uses the local module cache so it works offline.
 set -eu
 
-cd "$(dirname "$0")/acceptance"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+node --test "$ROOT"/test/unit/*.test.js
+
+cd "$ROOT/test/acceptance"
 
 GOMODCACHE="$(go env GOMODCACHE)"
 export GOFLAGS=-mod=mod

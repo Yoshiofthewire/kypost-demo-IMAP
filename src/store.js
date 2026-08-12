@@ -7,17 +7,22 @@ import { createHash, randomUUID } from 'node:crypto';
 
 export const PERSONAS = Object.keys(SEED);
 
-// KyPost Server picks the persona and hands it over as the login username. We
-// only map that name onto a seeded mailbox; we never invent a persona from an
-// arbitrary string beyond this table (spec section 4A, "Persona Ownership").
-//
-// Exact match on the local part, not a substring search: "bob@alice-corp.test"
-// contains "alice" and used to resolve to her mailbox while SMTP filed the same
-// session's Sent copy under bob. One rule, used by both.
-export function resolvePersona(nameOrAddress) {
-  const local = String(nameOrAddress || '').split('@')[0].trim().toLowerCase();
-  return PERSONAS.includes(local) ? local : PERSONAS[0];
+// A username becomes a Map key and a mailbox owner, so it is constrained to
+// what is safe in both roles rather than accepted verbatim.
+const VALID_USER = /^[a-z0-9._-]{1,64}$/;
+
+export function normalizeUser(nameOrAddress) {
+  const local = String(nameOrAddress ?? '').split('@')[0].trim().toLowerCase();
+  return VALID_USER.test(local) ? local : null;
 }
+
+// The server accepts any login, so every unseen name would otherwise allocate a
+// seeded mailbox forever. A client looping through random usernames is the
+// growth vector this bounds.
+const MAX_PERSONAS = Number(process.env.MAX_PERSONAS || 100);
+
+// Dynamic personas clone this one.
+const TEMPLATE = PERSONAS[0];
 
 // Clients disagree about where "Sent" lives. KyPost Server's SaveSent tries
 // "Sent" first and would otherwise create a second, half-empty folder next to
@@ -64,7 +69,7 @@ function newMailbox(name) {
 }
 
 function buildPersona(key) {
-  const seed = SEED[key];
+  const seed = SEED[key] || SEED[TEMPLATE];
   const box = {
     key,
     address: seed.address,
@@ -73,7 +78,7 @@ function buildPersona(key) {
     contacts: new Map(),
     ctag: 1,
   };
-  for (const m of seedMessages(key)) addMessage(box, m.folder, m.raw, m.flags, m.date);
+  for (const m of seedMessages(SEED[key] ? key : TEMPLATE)) addMessage(box, m.folder, m.raw, m.flags, m.date);
   for (const c of seed.contacts) {
     const vcard = vcardFor(c);
     box.contacts.set(c.uid, { uid: c.uid, vcard, etag: etagOf(vcard) });
@@ -141,15 +146,29 @@ class Store {
     return this.personas.get(personaKey);
   }
 
+  // Personas are created here and nowhere else: an IMAP LOGIN is the only way a
+  // mailbox comes into existence. Returns null when the name is unusable or the
+  // cap is reached, and LOGIN turns that into a NO.
   forUser(username) {
-    return this.get(resolvePersona(username));
+    const key = normalizeUser(username);
+    if (!key) return null;
+    const existing = this.personas.get(key);
+    if (existing) return existing;
+    if (this.personas.size >= MAX_PERSONAS) return null;
+    const created = buildPersona(key);
+    this.personas.set(key, created);
+    return created;
   }
 
   // Mail arriving over SMTP is filed against whoever the envelope says sent it,
-  // falling back to the authenticated login.
+  // falling back to the authenticated login. Resolves only — an envelope must
+  // never conjure a mailbox, or a stranger's MAIL FROM would allocate one.
   forAddress(address, fallbackUser) {
-    const local = String(address || '').split('@')[0].toLowerCase();
-    return PERSONAS.includes(local) ? this.get(local) : this.forUser(fallbackUser);
+    const local = normalizeUser(address);
+    const byAddress = local && this.personas.get(local);
+    if (byAddress) return byAddress;
+    const fallback = normalizeUser(fallbackUser);
+    return (fallback && this.personas.get(fallback)) || null;
   }
 
   putContact(persona, uid, vcard) {

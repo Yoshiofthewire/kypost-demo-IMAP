@@ -538,6 +538,7 @@ export function createImapSession(socket, { log, allowLogin }) {
       const pass = val(args[1]);
       if (!allowLogin(user, pass)) return send(`${tag} NO LOGIN rejected`);
       persona = store.forUser(user);
+      if (!persona) return send(`${tag} NO LOGIN rejected`);
       log('login', user, '->', persona.key);
       return send(`${tag} OK [CAPABILITY ${CAPABILITIES}] LOGIN completed`);
     }
