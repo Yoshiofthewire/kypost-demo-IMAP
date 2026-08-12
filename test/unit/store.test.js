@@ -41,6 +41,17 @@ test('forAddress falls back to the authenticated user', () => {
   assert.equal(store.forAddress('stranger@elsewhere.test', 'alice'), alice);
 });
 
+// SMTP does not require AUTH before MAIL, and the envelope is attacker-chosen.
+// If it outranked the login, anyone could file mail — and fire a deliver-*
+// trigger — into a mailbox they do not own. The previous test cannot catch a
+// regression here: its envelope names nobody, so both orderings agree.
+test('forAddress prefers the authenticated login over the envelope sender', () => {
+  const alice = store.forUser('alice');
+  const bob = store.forUser('bob');
+  assert.notEqual(alice, bob, 'test needs two distinct personas');
+  assert.equal(store.forAddress('bob@kypost-demo.local', 'alice'), alice);
+});
+
 test('cloned seed mail is addressed to its owner, not the template', () => {
   const u = store.forUser('user42');
   assert.equal(u.address, 'user42@kypost-demo.local');
