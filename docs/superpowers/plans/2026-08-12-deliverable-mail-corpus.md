@@ -1251,12 +1251,55 @@ Also check the reset-token header name against `src/carddav.js:118-126` — it i
 
 Append to `test/acceptance/acceptance_test.go`:
 
+The drip runs a timer for every persona, so a fast `DRIP_SECONDS` on the shared
+server would add messages underneath every other test — making
+`TestConcurrentUsersGetSeparateMailboxes` fail spuriously and
+`TestTriggerAddressDeliversToSenderInbox` pass for the wrong reason. **Do not
+set `DRIP_SECONDS` in `TestMain`.** This test spawns its own server, the same
+way `TestResetDisabledIsTheDefault` (`test/acceptance/acceptance_test.go:584`)
+already does.
+
 ```go
-// A reviewer who does nothing must still see mail arrive. TestMain sets
-// DRIP_SECONDS=2 so this does not wait fifteen minutes.
+// A reviewer who does nothing must still see mail arrive. This test runs its
+// own server so a two-second drip cannot add messages underneath every other
+// test in the suite.
 func TestDripDeliversToALoggedInPersona(t *testing.T) {
+	const (
+		dripIMAP  = 19934
+		dripSMTP  = 15874
+		dripHTTPS = 14434
+	)
+	dir := t.TempDir()
+	pubDir := filepath.Join(dir, "pub")
+	cmd := exec.Command("node", "../../src/index.js")
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("IMAP_PORT=%d", dripIMAP),
+		fmt.Sprintf("SMTP_PORT=%d", dripSMTP),
+		fmt.Sprintf("HTTPS_PORT=%d", dripHTTPS),
+		"BIND_ADDRESS=127.0.0.1",
+		"TLS_KEY_DIR="+filepath.Join(dir, "key"),
+		"TLS_PUBLISH_DIR="+pubDir,
+		"DRIP_SECONDS=2",
+	)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}()
+	if err := waitForPort(fmt.Sprintf("127.0.0.1:%d", dripIMAP), 15*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
 	user := "drip-user@kypost-demo.local"
-	d := dial(t, user)
+	d, err := goimap.New(user, "any-password", "127.0.0.1", dripIMAP)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer d.Close()
 	if err := d.SelectFolder("INBOX"); err != nil {
 		t.Fatal(err)
 	}
@@ -1265,28 +1308,41 @@ func TestDripDeliversToALoggedInPersona(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	after := waitForNewUID(t, user, "INBOX", len(before))
-	if after <= len(before) {
-		t.Errorf("drip delivered nothing: INBOX still holds %d messages", after)
+	// Poll this instance directly; waitForNewUID targets the shared server.
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		fresh, err := goimap.New(user, "any-password", "127.0.0.1", dripIMAP)
+		if err != nil {
+			continue
+		}
+		if err := fresh.SelectFolder("INBOX"); err == nil {
+			if uids, err := fresh.GetUIDs("ALL"); err == nil && len(uids) > len(before) {
+				_ = fresh.Close()
+				return
+			}
+		}
+		_ = fresh.Close()
 	}
+	t.Errorf("drip delivered nothing within 20s: INBOX still holds %d messages", len(before))
 }
 ```
 
-Add `DRIP_SECONDS=2` to the server environment in `TestMain` (`test/acceptance/acceptance_test.go:54-63`):
+This instance leaves `RESET_ENABLED` unset, so `SSL_CERT_DIR` from `TestMain`
+must already cover its published certificate — it does not, so the dialer needs
+this instance's own cert directory. Add `pubDir` to `SSL_CERT_DIR` for the
+duration of the test:
 
 ```go
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("IMAP_PORT=%d", imapPort),
-		fmt.Sprintf("SMTP_PORT=%d", smtpPort),
-		fmt.Sprintf("HTTPS_PORT=%d", httpsPort),
-		"BIND_ADDRESS=127.0.0.1",
-		"TLS_KEY_DIR="+keyDir,
-		"TLS_PUBLISH_DIR="+pubDir,
-		"RESET_ENABLED=true",
-		"RESET_TOKEN="+resetToken,
-		"DRIP_SECONDS=2",
-	)
+	prev := os.Getenv("SSL_CERT_DIR")
+	if err := os.Setenv("SSL_CERT_DIR", prev+":"+pubDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Setenv("SSL_CERT_DIR", prev) })
 ```
+
+Place this immediately after `waitForPort` succeeds and before the first
+`goimap.New` call.
 
 - [ ] **Step 2: Run test to verify it fails**
 
