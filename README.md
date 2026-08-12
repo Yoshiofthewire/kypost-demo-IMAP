@@ -62,9 +62,10 @@ matter and case is ignored, so `Deliver-Mail@anything` works.
 
 An unrecognised `deliver-*` address, or any other address, delivers nothing —
 the SMTP submission is still accepted and filed to `Sent Items` as usual.
-Delivery failures (a corpus read error, for instance) are logged server-side
-and never change the SMTP response, so a demo that silently isn't receiving
-injected mail needs a look at the server log, not the SMTP transcript.
+Delivery failures (a bug in header rewriting, for instance) are logged
+server-side and never change the SMTP response, so a demo that silently isn't
+receiving injected mail needs a look at the server log, not the SMTP
+transcript.
 
 Mail also arrives on its own every 15–30 minutes for any account that has
 logged in, so a reviewer who touches nothing still sees a notification. Set
