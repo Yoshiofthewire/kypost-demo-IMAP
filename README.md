@@ -193,13 +193,14 @@ offline.
   security-first project should not take an eleven-year-old unpatched dependency
   into an image. The result has zero runtime dependencies. `smtp-server` was
   dropped for the same reason of consistency, not necessity.
-* **KyPost Server's outbound CardDAV client cannot reach this server.** Its SSRF
-  guard (`internal/api/ssrf_guard.go`) refuses private and reserved addresses
-  for user-supplied CardDAV URLs, and `172.30.0.20` is private space by
-  definition. The address books here are complete and serve any CardDAV client
-  that is allowed to reach them; wiring KyPost Server to them needs a
-  sandbox-only allowance on **its** side, which is out of scope for this
-  repository.
+* **KyPost Server reaches this server's CardDAV through a named allowance.** Its
+  SSRF guard (`internal/api/ssrf_guard.go`) refuses private and reserved
+  addresses for user-supplied CardDAV URLs, and `172.30.0.20` is private space
+  by definition, so the compose file sets `SANDBOX_PRIVATE_HOSTS=kypost-demo-mail`
+  on KyPost Server. Exact hostname, no IP literals, empty everywhere else. Point
+  the client at `https://kypost-demo-mail/carddav/{persona}/`. Do not publish
+  CardDAV through a tunnel instead: authentication here is universal, so a
+  public hostname is a world-writable address book.
 * State is in memory. A restart is a reset, always — including when
   `RESET_ENABLED` is `false`.
 * The IMAP subset covers the commands KyPost Server issues. `CONDSTORE`,

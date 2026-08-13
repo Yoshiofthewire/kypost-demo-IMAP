@@ -78,6 +78,10 @@ services:
       # Trust the sandbox mail server's certificate without touching the system
       # bundle: Go reads every file in each colon-separated SSL_CERT_DIR entry.
       SSL_CERT_DIR: "/etc/ssl/certs:/srv/kypost-demo-tls"
+      # The demo CardDAV server is on this network, so its address is private
+      # and KyPost Server's outbound guard refuses it. Naming the one host here
+      # is what makes CardDAV reachable without publishing it to the internet.
+      SANDBOX_PRIVATE_HOSTS: kypost-demo-mail
       IMAP_HOST: kypost-demo-mail
       IMAP_PORT: "993"
       IMAP_USERNAME: "${DEMO_PERSONA:-alice}@kypost-demo.local"
