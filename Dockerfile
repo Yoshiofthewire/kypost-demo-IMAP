@@ -5,11 +5,9 @@
 # audit in a lockfile, nothing to patch on a CVE Tuesday.
 FROM node:24-alpine
 
-# openssl: generates the sandbox certificate on first start.
-# libcap:  lets the unprivileged user bind 443/587/993 without running as root.
-RUN apk add --no-cache openssl libcap \
- && setcap cap_net_bind_service=+ep "$(readlink -f "$(which node)")" \
- && apk del libcap
+# openssl: generates the sandbox certificate on first start. 443/587/993 need no
+# capability — Docker sets ip_unprivileged_port_start=0 inside the container.
+RUN apk add --no-cache openssl
 
 RUN addgroup -S -g 10001 kypost \
  && adduser -S -u 10001 -G kypost kypost
@@ -17,6 +15,7 @@ RUN addgroup -S -g 10001 kypost \
 WORKDIR /app
 COPY package.json ./
 COPY src ./src
+COPY corpus ./corpus
 
 # Private key material lives here and is never a volume: a container restart
 # regenerates it. The published certificate goes to /srv/tls-public, which the

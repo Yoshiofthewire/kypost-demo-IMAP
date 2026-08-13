@@ -56,8 +56,8 @@ Break one of these and the demo stops working with KyPost Server:
 
 `./test/run.sh` starts the server on high ports and drives it with the real
 client library. Anything that changes protocol behaviour needs a test there.
-`docker build .` plus a run with `--read-only --cap-drop ALL --cap-add
-NET_BIND_SERVICE` is the deployment check.
+`docker build .` plus a run with `--read-only --cap-drop ALL` is the deployment
+check.
 
 # Ponytail, lazy senior dev mode
 

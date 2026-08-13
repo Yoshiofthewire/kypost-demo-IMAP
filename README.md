@@ -157,8 +157,8 @@ reachable through the Cloudflared tunnel under any configuration.
   internet. Only `KyPost-Net` members can address them at all.
 * **Application**: connections from anything other than `172.30.0.10` are
   dropped before a greeting is written, on all three listeners.
-* **Container**: non-root user, read-only root filesystem, all capabilities
-  dropped except `NET_BIND_SERVICE`, `no-new-privileges`.
+* **Container**: non-root user, read-only root filesystem, every capability
+  dropped, `no-new-privileges`.
 * **Secrets**: the tunnel token arrives as a runtime environment variable in the
   cloudflared container and is passed by environment rather than argv, so it
   does not appear in `ps` or `docker inspect`'s command line.
