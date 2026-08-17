@@ -62,6 +62,11 @@ export function deliverForRecipients(persona, rcpts, corpus, log) {
 const DRIP_MIN_SECONDS = 15 * 60;
 const DRIP_MAX_SECONDS = 30 * 60;
 
+// Hard cap per INBOX. After each drip delivery the oldest messages are evicted
+// so the folder never exceeds this count. Keeps memory bounded without stopping
+// the drip, so the demo always looks alive.
+export const MAX_DRIP_MESSAGES = 15;
+
 // One timer per provisioned persona, each at its own random interval, so thirty
 // testers do not all get a notification in the same second. That is the seed
 // set from boot plus every persona a later LOGIN creates.
@@ -80,6 +85,12 @@ export function startDrip({ store, corpus, log, seconds }) {
       try {
         const entry = corpus.pickWeighted();
         injectEntry(persona, entry);
+        const inbox = persona.folders.get('INBOX');
+        if (inbox && inbox.messages.length > MAX_DRIP_MESSAGES) {
+          const excess = inbox.messages.length - MAX_DRIP_MESSAGES;
+          inbox.messages.splice(0, excess);
+          log('drip evicted', { persona: persona.key, removed: excess });
+        }
         log('drip delivered', { persona: persona.key, file: entry.file });
       } catch (e) {
         log('drip failed', { persona: persona.key, error: e.message });

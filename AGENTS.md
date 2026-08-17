@@ -48,6 +48,11 @@ Break one of these and the demo stops working with KyPost Server:
 - **Corpus delivery regenerates `Message-ID` and `Date`.** `addMessageDeduped`
   drops a second copy sharing an ID, so a fixture delivered twice with its
   stored ID would silently vanish.
+- **Drip delivery is capped at 15 messages per INBOX.** After each drip the
+  oldest messages are evicted so the folder never exceeds this count. Without
+  this the drip loop grows every persona's INBOX without bound and the
+  container OOMs after a few days of uptime. The cap lives in `deliver.js` as
+  `MAX_DRIP_MESSAGES`.
 - **`src/smtp.js` never branches on recipients.** It reports what it accepted
   through `onAccepted` and nothing more. Trigger routing lives in
   `src/deliver.js`.

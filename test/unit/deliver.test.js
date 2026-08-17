@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { store } from '../../src/store.js';
 import { loadCorpus } from '../../src/corpus.js';
-import { freshen, injectEntry, TRIGGERS, deliverForRecipients } from '../../src/deliver.js';
+import { freshen, injectEntry, TRIGGERS, deliverForRecipients, startDrip, MAX_DRIP_MESSAGES } from '../../src/deliver.js';
 
 const corpus = loadCorpus();
 
@@ -61,4 +61,32 @@ test('the trigger table covers every category plus batch', () => {
   assert.deepEqual(TRIGGERS.get('deliver-mime-bad'), ['mime-bad']);
   assert.deepEqual(TRIGGERS.get('deliver-batch'),
     ['plain', 'crypto-good', 'crypto-bad', 'mime-bad']);
+});
+
+test('drip evicts oldest messages when INBOX exceeds the cap', async () => {
+  const p = store.forUser('drip-evict-test');
+  const inbox = p.folders.get('INBOX');
+  // Clear seed messages and fill with 20 tagged messages
+  inbox.messages.length = 0;
+  inbox.uidNext = 1;
+  for (let i = 0; i < 20; i++) {
+    inbox.messages.push({
+      uid: inbox.uidNext++,
+      flags: new Set(),
+      date: new Date(Date.now() - (20 - i) * 60000),
+      raw: `From: test-${i}\r\nMessage-ID: <evict-${i}@test>\r\nDate: Mon, 01 Jan 2026 00:00:00 +0000\r\n\r\nbody ${i}`,
+    });
+  }
+  const oldestUidBefore = inbox.messages[0].uid;
+  const mockStore = {
+    onPersonaCreated: () => {},
+    personas: new Map([['drip-evict-test', p]]),
+  };
+  startDrip({ store: mockStore, corpus, log: () => {}, seconds: 1 });
+  // Wait for at least one drip tick
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(inbox.messages.length, MAX_DRIP_MESSAGES,
+    `INBOX must be trimmed to ${MAX_DRIP_MESSAGES}`);
+  assert.ok(inbox.messages[0].uid > oldestUidBefore,
+    'oldest messages must have been evicted');
 });
